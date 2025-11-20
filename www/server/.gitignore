@@ -1,0 +1,36 @@
+/__pycache__/
+ *.pyc
+    *.pyo
+    *.pyd
+    *.swp
+    .Python
+    env/
+    venv/
+    ENV/
+    build/
+    develop-eggs/
+    dist/
+    downloads/
+    eggs/
+    .eggs/
+    lib/
+    lib64/
+    parts/
+    sdist/
+    var/
+    wheels/
+    pip-wheel-metadata/
+    share/python-wheels/    
+    __pypackages__/
+    *.egg-info/
+    .installed
+    *.egg
+
+
+.pdf
+*.log
+*.aux
+/.venv
+/output
+/uploads
+**/__pycache__/
