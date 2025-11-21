@@ -41,7 +41,7 @@ async function genQrDataUrlForReport(reportNo?: string | number | null) {
     try {
         // prefer configured base; otherwise use current origin (client)
         const base = (process.env.NEXT_PUBLIC_BASE_URL ?? (typeof window !== "undefined" ? window.location.origin : ""));
-        const verifyUrl = `${base}/Verify-Your-Report?r=${encodeURIComponent(key)}`;
+        const verifyUrl = `${base}/?r=${encodeURIComponent(key)}`;
 
         // Options: margin 0 and high width to get good resolution
         const opts = { margin: 0, width: 800 };
@@ -198,7 +198,16 @@ export default function JewelryReportGrid({
 
     // Concurrency for QR generation. Adjust to taste (2..8)
     const QR_CONCURRENCY = 8;
-
+// const dataKey = useMemo(() => {
+//   if (!data) return "";
+//   // join report_no values into a simple stable string
+//   try {
+//     return data.map((d) => String(d?.report_no ?? "")).join("|");
+//   } catch {
+//     // fallback if data is not an array for some reason
+//     return String(data?.[0]?.report_no ?? "");
+//   }
+// }, [data]);
     // When incoming `data` changes, generate QR data URLs (concurrency-limited)
     useEffect(() => {
         let mounted = true;
