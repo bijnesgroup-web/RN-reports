@@ -47,6 +47,8 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
 
     // New states for copy type + logo upload
     const [copyType, setCopyType] = useState<string>("");
+    const [productLogoFile, setProductLogoFile] = useState<File | null>(null);
+    const productFileInputRef = useRef<HTMLInputElement | null>(null);
     const [companyLogoPreview, setCompanyLogoPreview] = useState<string | null>(null);
     const [productLogoPreview, setProductLogoPreview] = useState<string | null>(null);
     const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
@@ -88,7 +90,7 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                     style_number: reportData.style_number,
                     company_logo: reportData.company_logo,
                     isecopy: reportData.isecopy,
-                     igi_logo: reportData.igi_logo ?? false,
+                    igi_logo: reportData.igi_logo ?? false,
                     notice_image: reportData.notice_image ?? false,
                     comment: reportData.comment ?? DEFAULT_COMMENT,
                 } as EditableReport;
@@ -99,7 +101,7 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                 comment: reportData.comment ?? prev.comment ?? null,
                 company_logo: prev.company_logo ?? reportData.company_logo,
                 isecopy: prev.isecopy ?? reportData.isecopy,
-                igi_logo: prev.igi_logo ?? reportData.igi_logo ?? false, 
+                igi_logo: prev.igi_logo ?? reportData.igi_logo ?? false,
                 notice_image: prev.notice_image ?? reportData.notice_image ?? false,
             } as EditableReport;
         });
@@ -142,6 +144,25 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
         });
     };
 
+    const onSelectCompanyLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0] ?? null;
+        if (!f) return;
+        setCompanyLogoFile(f);
+        const url = URL.createObjectURL(f);
+        setCompanyLogoPreview(url);
+        setFormData((prev) => (prev ? { ...prev, company_logo: url } : prev));
+    };
+
+    const onSelectProductLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0] ?? null;
+        if (!f) return;
+        setProductLogoFile(f);
+        const url = URL.createObjectURL(f);
+        setProductLogoPreview(url);
+        setFormData((prev) => (prev ? { ...prev, image_filename: url } : prev)); // image_filename added to formData
+    };
+
+
     const onSelectLogo = (e: React.ChangeEvent<HTMLInputElement>) => {
         const f = e.target.files?.[0] ?? null;
         if (!f) return;
@@ -157,27 +178,36 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                     URL.revokeObjectURL(companyLogoPreview);
                 } catch { }
             }
-            if (productLogoPreview) {
+            if (productLogoPreview && productLogoFile) {
                 try {
                     URL.revokeObjectURL(productLogoPreview);
                 } catch { }
             }
         };
-    }, [companyLogoFile, companyLogoPreview, productLogoPreview]);
+    }, [companyLogoFile, companyLogoPreview, productLogoFile, productLogoPreview]);
     // helper: build FormData from only changed fields (compared to reportData)
     // includes company_logo file only when user uploaded a new file (companyLogoFile)
     const createFormDataFromChanges = (current: EditableReport, original?: JewelryReport | null) => {
         const fd = new FormData();
 
         if (!original) {
-            // fallback: send all current fields except report_no
+            // fallback: send all current fields except report_no and file placeholders
             Object.entries(current).forEach(([k, v]) => {
                 if (k === "report_no") return;
                 if (v === undefined) return;
-                // skip company_logo here; handled below
-                if (k === "company_logo") return;
+                // skip company/product file fields here; handled below
+                if (k === "company_logo" || k === "image_filename") return;
                 fd.append(k, String(v ?? ""));
             });
+
+            // include uploaded files if present
+            if (companyLogoFile) {
+                fd.append("company_logo", companyLogoFile, companyLogoFile.name);
+            }
+            if (productLogoFile) {
+                // append product image under key "image" (adjust key to your backend if required)
+                fd.append("image", productLogoFile, productLogoFile.name);
+            }
             return fd;
         }
 
@@ -214,7 +244,7 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
             fd.append("notice_image", String(currentNotice));
         }
 
-         const currentIgi = Boolean((current as any).igi_logo);
+        const currentIgi = Boolean((current as any).igi_logo);
         const originalIgi = Boolean(original.igi_logo);
         if (currentIgi !== originalIgi) {
             fd.append("igi_logo", String(currentIgi));
@@ -236,6 +266,11 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
         // company_logo: only include if user uploaded a new file
         if (companyLogoFile) {
             fd.append("company_logo", companyLogoFile, companyLogoFile.name);
+        }
+        // NEW: include product file if uploaded
+        if (productLogoFile) {
+            // using key "image" for product image — change to your backend key if different
+            fd.append("image", productLogoFile, productLogoFile.name);
         }
         return fd;
     };
@@ -319,47 +354,47 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                                             <div className="w-24 h-24 rounded overflow-hidden bg-zinc-100 flex items-center justify-center">
                                                 {productLogoPreview ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
-                                                    <img src={`${process.env.NEXT_PUBLIC_API_BASE_URL}/uploads/${productLogoPreview}`} alt="Product logo preview" className="object-contain w-full h-full" />
+                                                    // <img src={`${process.env.NEXT_PUBLIC_API_BASE_URL}/uploads/${productLogoPreview}`} alt="Product logo preview" className="object-contain w-full h-full" />
+                                                    <img
+                                                        src={
+                                                            productLogoPreview?.startsWith("blob:")
+                                                                ? productLogoPreview
+                                                                : `${process.env.NEXT_PUBLIC_API_BASE_URL}/uploads/${productLogoPreview}`
+                                                        }
+                                                        alt="Product logo preview"
+                                                        className="object-contain w-full h-full"
+                                                    />
+
 
                                                 ) : (
                                                     <div className="text-xs text-zinc-500 px-2 text-center">No logo</div>
                                                 )}
                                             </div>
 
-                                            {/* <div className="flex flex-col gap-2">
-                                            <input
-                                                ref={fileInputRef}
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={onSelectLogo}
-                                                className="hidden"
-                                                id="company-logo-input"
-                                            />
-                                            <div className="flex gap-2">
-                                                <label htmlFor="company-logo-input">
-                                                    <Button
-                                                        variant="outline"
-                                                        onClick={() => {
-                                                            fileInputRef.current?.click();
-                                                        }}
-                                                    >
-                                                        Change / Upload
-                                                    </Button>
-                                                </label>
-                                                <Button
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                        setCompanyLogoFile(null);
-                                                        setCompanyLogoPreview(null);
-                                                        setFormData((prev) => (prev ? { ...prev, company_logo: undefined } : prev));
-                                                        if (fileInputRef.current) fileInputRef.current.value = "";
-                                                    }}
-                                                >
-                                                    Remove
-                                                </Button>
+                                            <div className="flex flex-col gap-2">
+                                                <input
+                                                    ref={productFileInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={onSelectProductLogo}
+                                                    className="hidden"
+                                                    id="product-logo-input"
+                                                />
+                                                <div className="flex gap-2">
+                                                    <label htmlFor="product-logo-input">
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={() => {
+                                                                productFileInputRef.current?.click();
+                                                            }}
+                                                        >
+                                                            Change / Upload
+                                                        </Button>
+                                                    </label>
+                                                </div>
+                                                <div className="text-xs text-zinc-500">Accepted: image files. New upload will replace existing logo on save.</div>
                                             </div>
-                                            <div className="text-xs text-zinc-500">Accepted: image files. New upload will replace existing logo on save.</div>
-                                        </div> */}
+
                                         </div>
                                     </div>}
                                     {companyLogoPreview && <div className="">
@@ -368,46 +403,55 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                                             <div className="w-24 h-24 rounded overflow-hidden bg-zinc-100 flex items-center justify-center">
                                                 {companyLogoPreview ? (
                                                     // eslint-disable-next-line @next/next/no-img-element
-                                                    <img src={`${process.env.NEXT_PUBLIC_API_BASE_URL}/uploads/logo/${companyLogoPreview}`} alt="company logo preview" className="object-contain w-full h-full" />
+                                                    <img
+                                                        src={
+                                                            companyLogoPreview?.startsWith("blob:")
+                                                                ? companyLogoPreview
+                                                                : `${process.env.NEXT_PUBLIC_API_BASE_URL}/uploads/logo/${companyLogoPreview}`
+                                                        }
+                                                        alt="Company logo preview"
+                                                        className="object-contain w-full h-full"
+                                                    />
+
                                                 ) : (
                                                     <div className="text-xs text-zinc-500 px-2 text-center">No logo</div>
                                                 )}
                                             </div>
 
                                             {/* <div className="flex flex-col gap-2">
-                                            <input
-                                                ref={fileInputRef}
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={onSelectLogo}
-                                                className="hidden"
-                                                id="company-logo-input"
-                                            />
-                                            <div className="flex gap-2">
-                                                <label htmlFor="company-logo-input">
+                                                <input
+                                                    ref={fileInputRef}
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={onSelectCompanyLogo}
+                                                    className="hidden"
+                                                    id="company-logo-input"
+                                                />
+                                                <div className="flex gap-2">
+                                                    <label htmlFor="company-logo-input">
+                                                        <Button
+                                                            variant="outline"
+                                                            onClick={() => {
+                                                                fileInputRef.current?.click();
+                                                            }}
+                                                        >
+                                                            Change / Upload
+                                                        </Button>
+                                                    </label>
                                                     <Button
-                                                        variant="outline"
+                                                        variant="ghost"
                                                         onClick={() => {
-                                                            fileInputRef.current?.click();
+                                                            setCompanyLogoFile(null);
+                                                            setCompanyLogoPreview(null);
+                                                            setFormData((prev) => (prev ? { ...prev, company_logo: undefined } : prev));
+                                                            if (fileInputRef.current) fileInputRef.current.value = "";
                                                         }}
                                                     >
-                                                        Change / Upload
+                                                        Remove
                                                     </Button>
-                                                </label>
-                                                <Button
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                        setCompanyLogoFile(null);
-                                                        setCompanyLogoPreview(null);
-                                                        setFormData((prev) => (prev ? { ...prev, company_logo: undefined } : prev));
-                                                        if (fileInputRef.current) fileInputRef.current.value = "";
-                                                    }}
-                                                >
-                                                    Remove
-                                                </Button>
-                                            </div>
-                                            <div className="text-xs text-zinc-500">Accepted: image files. New upload will replace existing logo on save.</div>
-                                        </div> */}
+                                                </div>
+                                                <div className="text-xs text-zinc-500">Accepted: image files. New upload will replace existing logo on save.</div>
+                                            </div> */}
                                         </div>
                                     </div>}
                                 </div>

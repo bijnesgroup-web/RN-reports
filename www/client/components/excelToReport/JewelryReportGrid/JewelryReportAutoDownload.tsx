@@ -12,6 +12,8 @@ import {
 } from "@react-pdf/renderer";
 import ReportPDF, { ReportData } from "../ReportPDF";
 import JSZip from "jszip";
+import QRCode from "qrcode";
+import { buildFileNameRoot } from "./utils/fileName";
 
 /**
  * Props - added onStatusChange to report status/progress back to parent
@@ -201,8 +203,7 @@ export default function JewelryReportAutoDownload({
     );
 
     const fileNameRoot = useMemo(() => {
-        const rn = data?.[0]?.report_no ?? "batch";
-        return `Jewelry-Report-${rn}`;
+        return buildFileNameRoot();
     }, [data]);
 
     // Loading / progress UI
@@ -217,6 +218,27 @@ export default function JewelryReportAutoDownload({
     useEffect(() => {
         onStatusChange?.(status, progress, errorMsg);
     }, [status, progress, errorMsg, onStatusChange]);
+
+    const qrCache = new Map<string, string | null>();
+
+    async function genQrDataUrlForReport(reportNo: string | undefined) {
+        if (!reportNo) return null;
+        const key = String(reportNo);
+        if (qrCache.has(key)) return qrCache.get(key) ?? null;
+        try {
+            const base = (process.env.NEXT_PUBLIC_BASE_URL ?? window.location.origin);
+            const verifyUrl = `${base}/?r=${encodeURIComponent(key)}`;
+            // high res
+            const opts = { margin: 0, width: 800 };
+            const url = await QRCode.toDataURL(verifyUrl, opts);
+            qrCache.set(key, url);
+            return url;
+        } catch (err) {
+            console.error("QR generation error:", err);
+            qrCache.set(key, null);
+            return null;
+        }
+    }
 
     const handleDownloadAll = useCallback(async () => {
         try {
@@ -234,13 +256,28 @@ export default function JewelryReportAutoDownload({
 
             // generate each page PDF sequentially so we can update progress
             const blobResults: { blob: Blob; idx: number }[] = [];
+
+            // Generate PDFs sequentially so progress works and memory is controlled
             for (let i = 0; i < perPageChunks.length; i++) {
                 setStatus(`generating (${i + 1}/${perPageChunks.length})`);
                 onStatusChange?.(status, Math.round(((i + 1) / perPageChunks.length) * 100), null);
-                const doc = makeDocumentForPage(perPageChunks[i], i);
+                const pageItems = perPageChunks[i];
+
+                // 1) Pre-generate QR data URLs for this page's items
+                await Promise.all(
+                    pageItems.map(async (item) => {
+                        // store the qrDataUrl directly on item (shallow mutation)
+                        // Make sure item is not frozen. If it is, clone: const it = {...item};
+                        (item as any).qrDataUrl = await genQrDataUrlForReport(item.report_no);
+                    })
+                );
+
+                // 2) Build the Document now that each item has item.qrDataUrl
+                const doc = makeDocumentForPage(pageItems, i);
                 const asPdf = pdf(doc);
                 const blob = await asPdf.toBlob();
                 blobResults.push({ blob, idx: i });
+
                 setProgress(Math.round(((i + 1) / perPageChunks.length) * 100));
                 onStatusChange?.("generating", Math.round(((i + 1) / perPageChunks.length) * 100), null);
             }
@@ -268,7 +305,7 @@ export default function JewelryReportAutoDownload({
             // multiple -> zip
             const zip = new JSZip();
             blobResults.forEach(({ blob, idx }) => {
-                const partName = `${fileNameRoot}-part-${idx + 1}.pdf`;
+                const partName = `${idx + 1}-part-${fileNameRoot}.pdf`;
                 zip.file(partName, blob);
             });
 

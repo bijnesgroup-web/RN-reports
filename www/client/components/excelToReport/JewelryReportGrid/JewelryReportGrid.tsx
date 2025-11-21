@@ -1,5 +1,5 @@
 'use client';
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     PDFViewer as RPDPDFViewer,
     Document,
@@ -12,6 +12,7 @@ import {
 } from "@react-pdf/renderer";
 import ReportPDF, { ReportData } from "../ReportPDF";
 import JSZip from "jszip";
+import QRCode from "qrcode";
 
 type Props = {
     data: ReportData[];
@@ -26,6 +27,32 @@ function chunk<T>(arr: T[], size: number): T[][] {
     const out: T[][] = [];
     for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
     return out;
+}
+
+// Simple global cache to avoid regenerating same QR many times across component re-mounts
+const qrCache = new Map<string, string | null>();
+
+// Generate a QR data URL (PNG by default) for a report number (uses caching)
+async function genQrDataUrlForReport(reportNo?: string | number | null) {
+    if (!reportNo) return null;
+    const key = String(reportNo);
+    if (qrCache.has(key)) return qrCache.get(key) ?? null;
+
+    try {
+        // prefer configured base; otherwise use current origin (client)
+        const base = (process.env.NEXT_PUBLIC_BASE_URL ?? (typeof window !== "undefined" ? window.location.origin : ""));
+        const verifyUrl = `${base}/Verify-Your-Report?r=${encodeURIComponent(key)}`;
+
+        // Options: margin 0 and high width to get good resolution
+        const opts = { margin: 0, width: 800 };
+        const url = await QRCode.toDataURL(verifyUrl, opts);
+        qrCache.set(key, url);
+        return url;
+    } catch (err) {
+        console.error("QR generation error:", err);
+        qrCache.set(key, null);
+        return null;
+    }
 }
 
 const iBMPlexSansBold = "/fonts/IBMPlexSans-Bold.ttf";
@@ -163,18 +190,75 @@ export default function JewelryReportGrid({
         },
     });
 
+    // ---------------------------
+    // Prepared data with qrDataUrl attached (cloned items)
+    // ---------------------------
+    const [preparedData, setPreparedData] = useState<ReportData[] | null>(null);
+    const isPreparingRef = useRef(false);
+
+    // Concurrency for QR generation. Adjust to taste (2..8)
+    const QR_CONCURRENCY = 8;
+
+    // When incoming `data` changes, generate QR data URLs (concurrency-limited)
+    useEffect(() => {
+        let mounted = true;
+        async function prepareAll() {
+            if (!data || data.length === 0) {
+                if (mounted) setPreparedData([]);
+                return;
+            }
+            // avoid duplicate concurrent runs
+            if (isPreparingRef.current) return;
+            isPreparingRef.current = true;
+
+            // shallow clones to avoid mutating caller's objects
+            const out = data.map((item) => ({ ...(item as any) }));
+
+            // concurrency-limited workers
+            let idx = 0;
+            const workers = Array.from({ length: QR_CONCURRENCY }, async () => {
+                while (true) {
+                    const i = idx++;
+                    if (i >= out.length) break;
+                    const it = out[i] as any;
+                    try {
+                        // skip if already provided
+                        if (it.qrDataUrl) continue;
+                        it.qrDataUrl = await genQrDataUrlForReport(it.report_no);
+                    } catch (err) {
+                        it.qrDataUrl = null;
+                    }
+                }
+            });
+
+            try {
+                await Promise.all(workers);
+                if (mounted) setPreparedData(out);
+            } catch (err) {
+                console.error("Error preparing QR data:", err);
+                if (mounted) setPreparedData(out); // still set whatever we have
+            } finally {
+                isPreparingRef.current = false;
+            }
+        }
+
+        void prepareAll();
+        return () => {
+            mounted = false;
+        };
+    }, [data]);
+
+    // ---------------------------
+    // Document builders use preparedData if available, otherwise fall back to original data
+    // ---------------------------
+    const dataSource = preparedData ?? data;
+    const pagesUsingPrepared = chunk(dataSource, itemsPerPage);
     // Build the Document once for the viewer (all pages)
     const renderDocument = useCallback(() => {
         return (
-            <Document
-                title={`Jewelry Report — ${data?.[0]?.report_no ?? "batch"}`}
-            >
-                {pages.map((pageItems, pIdx) => (
-                    <Page
-                        key={pIdx}
-                        size={[pageDims.width, pageDims.height]}
-                        style={styles.page}
-                    >
+            <Document title={`${data?.[0]?.report_no ?? "batch"}`}>
+                {pagesUsingPrepared.map((pageItems, pIdx) => (
+                    <Page key={pIdx} size={[pageDims.width, pageDims.height]} style={styles.page}>
                         {/* <Image src="/pdfBg.jpg" style={styles.backgroundImage} /> */}
 
                         {/* overlay grid container (no per-cell borders) */}
@@ -204,25 +288,17 @@ export default function JewelryReportGrid({
                                 </View>
                             ))}
 
-                            {/* fill empty cells to keep layout stable */}
                             {pageItems.length < itemsPerPage &&
-                                Array.from({ length: itemsPerPage - pageItems.length }).map(
-                                    (_, i) => <View key={`empty-${i}`} style={styles.cell} />
-                                )}
-
+                                Array.from({ length: itemsPerPage - pageItems.length }).map((_, i) => (
+                                    <View key={`empty-${i}`} style={styles.cell} />
+                                ))}
                             {/* Draw vertical lines (single Views) */}
                             {verticalXs.map((x, i) => (
                                 <View
-
                                     key={`v-${i}`}
                                     style={[
                                         styles.lineCommon,
-                                        {
-                                            left: x,
-                                            top: 0,
-                                            width: BORDER_WIDTH,
-                                            height: pageDims.height,
-                                        },
+                                        { left: x, top: 0, width: BORDER_WIDTH, height: pageDims.height },
                                     ]}
                                 />
                             ))}
@@ -233,12 +309,7 @@ export default function JewelryReportGrid({
                                     key={`h-${i}`}
                                     style={[
                                         styles.lineCommon,
-                                        {
-                                            left: 0,
-                                            top: y,
-                                            width: pageDims.width,
-                                            height: BORDER_WIDTH,
-                                        },
+                                        { left: 0, top: y, width: pageDims.width, height: BORDER_WIDTH },
                                     ]}
                                 />
                             ))}
@@ -248,16 +319,13 @@ export default function JewelryReportGrid({
             </Document>
         );
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data, cols, rows, pageDims.width, pageDims.height]);
+    }, [preparedData, data, cols, rows, pageDims.width, pageDims.height, cellHeight, cellWidth]);
 
     // Helper: create a Document that contains exactly the provided pageItems as one page.
     const makeDocumentForPage = useCallback(
         (pageItems: ReportData[], pageIndex: number) => {
             return (
-                <Document
-                    key={pageIndex}
-                    title={`Jewelry Report`}
-                >
+                <Document key={pageIndex} title={`Jewelry Report`}>
                     <Page size={[pageDims.width, pageDims.height]} style={styles.page}>
                         {/* <Image src="/pdfBg.jpg" style={styles.backgroundImage} /> */}
 
@@ -279,21 +347,16 @@ export default function JewelryReportGrid({
                             ))}
 
                             {pageItems.length < itemsPerPage &&
-                                Array.from({ length: itemsPerPage - pageItems.length }).map(
-                                    (_, i) => <View key={`empty-${i}`} style={styles.cell} />
-                                )}
+                                Array.from({ length: itemsPerPage - pageItems.length }).map((_, i) => (
+                                    <View key={`empty-${i}`} style={styles.cell} />
+                                ))}
 
                             {verticalXs.map((x, i) => (
                                 <View
                                     key={`v-${i}`}
                                     style={[
                                         styles.lineCommon,
-                                        {
-                                            left: x,
-                                            top: 0,
-                                            width: BORDER_WIDTH,
-                                            height: pageDims.height,
-                                        },
+                                        { left: x, top: 0, width: BORDER_WIDTH, height: pageDims.height },
                                     ]}
                                 />
                             ))}
@@ -303,12 +366,7 @@ export default function JewelryReportGrid({
                                     key={`h-${i}`}
                                     style={[
                                         styles.lineCommon,
-                                        {
-                                            left: 0,
-                                            top: y,
-                                            width: pageDims.width,
-                                            height: BORDER_WIDTH,
-                                        },
+                                        { left: 0, top: y, width: pageDims.width, height: BORDER_WIDTH },
                                     ]}
                                 />
                             ))}
@@ -327,29 +385,37 @@ export default function JewelryReportGrid({
         return `Jewelry-Report-${rn}-${cols}x${rows}`;
     }, [data, cols, rows]);
 
-    // Generate and download PDF(s) (client-side)
+    // Generate and download PDF(s)
     const handleDownloadAll = useCallback(async () => {
         try {
-            // chunk into pages (each page contains up to itemsPerPage)
-            const perPageChunks = chunk(data, itemsPerPage);
+            // Ensure we have preparedData; if not ready, wait for generation (will trigger prepare useEffect)
+            if (!preparedData) {
+                // wait up to a reasonable amount; you can remove or tune timeout logic as needed
+                const waitStart = Date.now();
+                while (!preparedData && Date.now() - waitStart < 30000) {
+                    // small delay
+                    // eslint-disable-next-line no-await-in-loop
+                    await new Promise((res) => setTimeout(res, 200));
+                }
+            }
 
-            // For each page, create a Document containing that single page and generate a Blob
-            const blobPromises = perPageChunks.map(async (pageItems, idx) => {
-                const doc = makeDocumentForPage(pageItems, idx);
+            const source = preparedData ?? data;
+            const perPageChunks = chunk(source, itemsPerPage);
+
+            if (perPageChunks.length === 0) return;
+
+            const blobResults: { blob: Blob; idx: number }[] = [];
+
+            // Generate sequentially to reduce memory pressure and allow progress updates
+            for (let i = 0; i < perPageChunks.length; i++) {
+                const pageItems = perPageChunks[i];
+                const doc = makeDocumentForPage(pageItems, i);
                 const asPdf = pdf(doc);
                 const blob = await asPdf.toBlob();
-                return { blob, idx };
-            });
-
-            const blobResults = await Promise.all(blobPromises);
-
-            if (blobResults.length === 0) {
-                // nothing to download
-                return;
+                blobResults.push({ blob, idx: i });
             }
 
             if (blobResults.length === 1) {
-                // Single PDF - download directly
                 const { blob } = blobResults[0];
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
@@ -362,7 +428,6 @@ export default function JewelryReportGrid({
                 return;
             }
 
-            // Multiple PDFs -> zip them
             const zip = new JSZip();
             blobResults.forEach(({ blob, idx }) => {
                 const partName = `${fileNameRoot}-part-${idx + 1}.pdf`;
@@ -381,12 +446,11 @@ export default function JewelryReportGrid({
         } catch (err) {
             console.error("Error generating PDF(s):", err);
         }
-    }, [data, fileNameRoot, itemsPerPage, makeDocumentForPage]);
-
+    }, [preparedData, data, fileNameRoot, itemsPerPage, makeDocumentForPage]);
     // Render both the viewer and a download button
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 8, height: "100%" }}>
-            {/* <div style={{ display: "flex", justifyContent: "flex-end", padding: 8 }}>
+            <div style={{ display: "flex", justifyContent: "flex-end", padding: 8 }}>
                 <button
                     onClick={handleDownloadAll}
                     style={{
@@ -397,9 +461,9 @@ export default function JewelryReportGrid({
                         cursor: "pointer",
                     }}
                 >
-                    Download PDF{pages.length > 1 ? "s" : ""}
+                    Download PDF{pagesUsingPrepared.length > 1 ? "s" : ""}
                 </button>
-            </div> */}
+            </div>
 
             <div style={{ flex: 1, minHeight: 0 }}>
                 <RPDPDFViewer style={{ width: viewerWidth, height: viewerHeight }}>
