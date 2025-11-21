@@ -26,6 +26,7 @@ interface JewelryReport {
     company_logo?: string;
     isecopy?: boolean;
     notice_image?: boolean;
+    igi_logo?: boolean;
 }
 
 interface EditModalProps {
@@ -87,6 +88,7 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                     style_number: reportData.style_number,
                     company_logo: reportData.company_logo,
                     isecopy: reportData.isecopy,
+                     igi_logo: reportData.igi_logo ?? false,
                     notice_image: reportData.notice_image ?? false,
                     comment: reportData.comment ?? DEFAULT_COMMENT,
                 } as EditableReport;
@@ -97,6 +99,7 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                 comment: reportData.comment ?? prev.comment ?? null,
                 company_logo: prev.company_logo ?? reportData.company_logo,
                 isecopy: prev.isecopy ?? reportData.isecopy,
+                igi_logo: prev.igi_logo ?? reportData.igi_logo ?? false, 
                 notice_image: prev.notice_image ?? reportData.notice_image ?? false,
             } as EditableReport;
         });
@@ -210,6 +213,13 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
         if (currentNotice !== originalNotice) {
             fd.append("notice_image", String(currentNotice));
         }
+
+         const currentIgi = Boolean((current as any).igi_logo);
+        const originalIgi = Boolean(original.igi_logo);
+        if (currentIgi !== originalIgi) {
+            fd.append("igi_logo", String(currentIgi));
+        }
+
         // comment: use the same shouldSendComment logic you already had
         const originalComment = originalServerCommentRef.current;
         const currentComment = current.comment ?? null;
@@ -477,7 +487,18 @@ const EditModal = ({ reportNumber, onClose, onSave }: EditModalProps) => {
                                         <label htmlFor="notice-image" className="text-sm">Include notice image</label>
                                     </div>
                                 </div>
-
+                                <div className="grid gap-2">
+                                    <Label htmlFor="igi-logo" className="mb-1">IGI Logo</Label>
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            id="igi-logo"
+                                            type="checkbox"
+                                            checked={Boolean(formData?.igi_logo)}
+                                            onChange={(e) => handleChange("igi_logo", e.target.checked)}
+                                        />
+                                        <label htmlFor="igi-logo" className="text-sm">Include IGI logo</label>
+                                    </div>
+                                </div>
                                 <div className="grid gap-2">
                                     <Label htmlFor="comment">Comment</Label>
                                     <Textarea
