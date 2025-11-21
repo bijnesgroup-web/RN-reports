@@ -28,7 +28,7 @@ export default function VerifyReport() {
 
         // client-side navigate to include the query param.
         // Uses Router push so app re-renders and ParamsVerifyReport will show.
-        router.push(`/Verify-Your-Report/?r=${encodeURIComponent(reportNumber)}`);
+        router.push(`/?r=${encodeURIComponent(reportNumber)}`);
     }
 
     return (

@@ -3,6 +3,7 @@
 
 import JewelryReportGrid from '@/components/excelToReport/JewelryReportGrid/JewelryReportGrid'
 import { useReport } from '@/hooks/useReports'
+import { dummyData } from '@/lib/env'
 import { useSearchParams } from 'next/navigation'
 import React from 'react'
 
@@ -33,7 +34,7 @@ export default function Client() {
 
     return (
         <JewelryReportGrid
-            // data={dummyData}
+            // data={[dummyData]}
             data={[reportData]}
         />
     )

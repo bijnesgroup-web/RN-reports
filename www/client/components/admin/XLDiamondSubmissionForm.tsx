@@ -35,6 +35,8 @@ type Report = {
     created_at: string;
     isecopy: boolean;
     notice_image?: boolean;
+    igi_logo?: boolean; // <-- added here
+
 };
 
 type Props = {
@@ -79,6 +81,7 @@ const XLDiamondSubmissionForm: React.FC = () => {
     const [comment, setComment] = useState<string>(DEFAULT_COMMENT);
     const [uploadProgress, setUploadProgress] = useState<number | null>(null);
     const [noticeImage, setNoticeImage] = useState<boolean>(false);
+    const [igiLogo, setIgiLogo] = useState<boolean>(false);
 
     // state to hold array to pass to auto-download component
     const [autoDownloadData, setAutoDownloadData] = useState<Report[] | null>(null);
@@ -138,6 +141,7 @@ const XLDiamondSubmissionForm: React.FC = () => {
             isecopy?: boolean | null;
             comment?: string | null;
             notice_image?: boolean;
+             igi_logo?: boolean;
         } = {};
 
         opts.onUploadProgress = (progressEvent: any) => {
@@ -175,6 +179,7 @@ const XLDiamondSubmissionForm: React.FC = () => {
             isecopy: opts.isecopy,
             comment: opts.comment,
             ...(typeof opts.notice_image !== "undefined" ? { notice_image: opts.notice_image } : {}),
+            ...(typeof opts.igi_logo  !== "undefined" ? { igi_logo : igiLogo } : {}),
         };
 
         mutate(payload as any, {
@@ -188,7 +193,9 @@ const XLDiamondSubmissionForm: React.FC = () => {
                 setDiamondType(DEFAULT_DIAMOND);
                 setCopyType(DEFAULT_COPY);
                 setComment(DEFAULT_COMMENT);
-                setUploadProgress(null);
+                setUploadProgress(null); 
+                setIgiLogo(false);
+                setNoticeImage(false);
                 if (inputRef.current) inputRef.current.value = "";
                 if (logoInputRef.current) logoInputRef.current.value = "";
 
@@ -363,7 +370,7 @@ const XLDiamondSubmissionForm: React.FC = () => {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="natural">Natural diamond</SelectItem>
-                                <SelectItem value="labradorite">Labradorite diamond</SelectItem>
+                                <SelectItem value="Labgrown diamond">Labgrown diamond</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -394,6 +401,19 @@ const XLDiamondSubmissionForm: React.FC = () => {
                             Include notice image
                         </label>
                     </div>
+                   <div className="flex items-center gap-2">
+                    <input
+                        id="igi-logo"
+                        type="checkbox"
+                        className="rounded"
+                        checked={igiLogo}
+                        onChange={(e) => setIgiLogo(e.target.checked)}
+                    />
+                    <label htmlFor="igi-logo" className="text-sm">
+                        Include IGI logo
+                    </label>
+                   </div>
+
                     <div className="md:col-span-2">
                         <Label htmlFor="comment" className="mb-1">
                             Comment

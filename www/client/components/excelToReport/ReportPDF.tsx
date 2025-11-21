@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react"
 import { View, Text, Image, StyleSheet, Font } from "@react-pdf/renderer"
-import QRCode from "qrcode";
 import { BOTTOM_DATE, DEFAULT_COMMENT, DEFAULT_COMMENT_ELECTRONIC_COPY_ONE, DEFAULT_COMMENT_ELECTRONIC_COPY_TWO, IMPORTANT_NOTICE, IMPORTANT_NOTICE_BOLD } from "@/lib/env";
+import QRCode from "qrcode";
 
 // add near top of file / inside component before creating styles
 const LABEL_WIDTH = 53.4; // LABEL_WIDTH — the horizontal space (in PDF points) reserved for the label text (e.g. "Comments:"). Think of it as the left  column width.
@@ -26,8 +26,10 @@ export type ReportData = {
     important_notice_bold?: string
     isecopy?: boolean
     notice_image?: boolean
+    igi_logo?: boolean
     image_filename?: string
     company_logo?: string
+    qrDataUrl?: any
 }
 
 type Props = {
@@ -47,7 +49,21 @@ export default function ReportPDF({
     contentHeight,
     valueWidth
 }: Props) {
-    const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+   
+    const [localQr, setLocalQr] = useState<string | null>(null);
+
+    // We prefer the QR already prepared outside
+    const incomingQr = data.qrDataUrl ?? null;
+
+    // // Debug log
+    // useEffect(() => {
+    //     console.log("ReportPDF incoming QR:", incomingQr);
+    //     console.log("ReportPDF local QR:", localQr);
+    // }, [incomingQr, localQr]);
+
+    // FINAL QR to use
+    const qrToUse = incomingQr || localQr;  // <-- automatic priority
+
     const isECopy = Boolean(data.isecopy);
 
     const FIXED_FONTS = {
@@ -61,44 +77,42 @@ export default function ReportPDF({
 
     useEffect(() => {
         let mounted = true;
-        // Only generate QR when not in single grid layout
-        const generate = async () => {
+
+        const generateQr = async () => {
             try {
-                if (isSingleGridLayout) {
-                    // Clear any existing QR when single-grid layout is active
-                    if (mounted) setQrDataUrl(null);
-                    return;
-                }
+                // RULE 1: If incoming QR exists, DO NOT generate
+                if (incomingQr) return;
 
-                // If there's no report number, clear qr and exit
+                // RULE 2: Only generate inside single layout
+                if (isSingleGridLayout) return;
+
                 const reportNo = String(data?.report_no ?? "");
-                if (!reportNo) {
-                    if (mounted) setQrDataUrl(null);
-                    return;
-                }
+                if (!reportNo) return;
 
-                // prefer a configured base URL (useful in prod); otherwise use current origin (client-side)
-                const base = (process.env.NEXT_PUBLIC_BASE_URL && String(process.env.NEXT_PUBLIC_BASE_URL))
+                // ensure we have a base URL
+                const base =
+                    process.env.NEXT_PUBLIC_BASE_URL ||
+                    (typeof window !== "undefined" ? window.location.origin : "");
 
-                // build the full verify URL and encode the report number
                 const verifyUrl = `${base}/?r=${encodeURIComponent(reportNo)}`;
 
-                // margin:0 avoids extra quiet zone; width:800 keeps high resolution
-                const opts = { margin: 0, width: 800 };
-                const url = await QRCode.toDataURL(verifyUrl, opts);
+                console.log("Generating QR inside ReportPDF for:", reportNo);
 
-                if (mounted) setQrDataUrl(url);
+                const url = await QRCode.toDataURL(verifyUrl, { margin: 0, width: 800 });
+
+                if (mounted) setLocalQr(url);
             } catch (err) {
-                console.error("QR generation error:", err);
-                if (mounted) setQrDataUrl(null);
+                console.error("Local QR generation error:", err);
+                if (mounted) setLocalQr(null);
             }
         };
 
-        generate();
+        generateQr();
+
         return () => {
             mounted = false;
         };
-    }, [data?.report_no, isSingleGridLayout]);
+    }, [incomingQr, isSingleGridLayout, data?.report_no]);
 
     const styles = StyleSheet.create({
         // global container
@@ -250,11 +264,20 @@ export default function ReportPDF({
         },
         noticeBgImageAbsolute: {
             position: "absolute",
-            bottom: "13%",
-            left: 11,
-            width: "95%",
-            height: 15,
+            bottom: isSingleGridLayout ? "0%" : "13%",
+            left: isSingleGridLayout ? 0: 11,
+            width: isSingleGridLayout ? "100%" : "90%",
+            height: isSingleGridLayout ? isECopy ? 10 : 13: 15,
             overflow: "hidden",
+        },
+        igiBgImageAbsolute: {
+            position: "absolute",
+            top: "33%",
+            left:-10,
+            width: "55%",
+            height: "55%",
+            overflow: "hidden",
+             opacity: 0.2
         },
 
         electronicCopyImageAbsolute: {
@@ -322,8 +345,13 @@ export default function ReportPDF({
                     />
 
                 </View>}
-
-                {!isSingleGridLayout && data.notice_image && <View style={styles.noticeBgImageAbsolute}>
+                {data.igi_logo && <View style={styles.igiBgImageAbsolute}>
+                    <Image
+                        src="/img/logo.jpg"
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                </View>}
+                {data.notice_image && <View style={styles.noticeBgImageAbsolute}>
                     <Image
                         src="/img/notice_bg.png"
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
@@ -336,9 +364,9 @@ export default function ReportPDF({
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                 </View>
-                {qrDataUrl && (
+                {qrToUse && (
                     <View style={styles.qrWatermark} wrap={false}>
-                        <Image src={qrDataUrl} style={{ width: "100%", height: "100%" }} />
+                        <Image src={qrToUse} style={{ width: "100%", height: "100%" }} />
                     </View>
                 )}
                 {/* Header */}
@@ -473,8 +501,7 @@ export default function ReportPDF({
                                         {"\u00A0"}
                                         <Text style={styles.colon}>: </Text>
                                         <Text>
-                                            {DEFAULT_COMMENT_ELECTRONIC_COPY_ONE}
-
+                                            {data.comment ?? DEFAULT_COMMENT_ELECTRONIC_COPY_ONE}
                                         </Text>
                                     </Text>
 
@@ -490,7 +517,7 @@ export default function ReportPDF({
                                                 },
                                             ]}
                                         >
-                                            {DEFAULT_COMMENT_ELECTRONIC_COPY_TWO}
+                                            {data.comment ?? DEFAULT_COMMENT_ELECTRONIC_COPY_TWO}
                                         </Text>
                                     )}
 
@@ -513,7 +540,7 @@ export default function ReportPDF({
                                     <Text style={styles.colon}>: </Text>
                                     <Text>
                                         {/* {`${data.comment}${data.style}`} */}
-                                        {DEFAULT_COMMENT}
+                                        {data.comment ?? DEFAULT_COMMENT }
                                         {/* {DEFAULT_COMMENT_ELECTRONIC_COPY} */}
                                         <Text style={styles.mainComment}>Style #{data.style_number ?? ""}</Text>
                                     </Text>
@@ -547,7 +574,7 @@ export default function ReportPDF({
                     </Text>
                 </View>
 
-                {!isSingleGridLayout  && <View style={styles.bottomDate}>
+                {isSingleGridLayout && !isECopy && <View style={styles.bottomDate}>
                     <Text style={{ fontSize: FIXED_FONTS.bottomDate }}>
                         {BOTTOM_DATE}
                     </Text>

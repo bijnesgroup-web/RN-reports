@@ -38,4 +38,5 @@ export const dummyData = {
   company_logo: null,
   created_at: "2025-11-14T10:36:33.824629+05:30",
   isecopy: true,
+  notice_image:true
 };
